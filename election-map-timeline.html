@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Election Maps Across Time</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #map { height: 100vh; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background: white;
+      padding: 10px;
+      border-radius: 6px;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+    }
+    #logo {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1001;
+    }
+    #logo img {
+      height: 50px;
+      width: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div id="logo">
+    <img src="logo_resized.png" alt="Election Zone Logo" />
+  </div>
+
+  <div id="controls">
+    <label for="yearRange">Year: <span id="yearLabel">1950</span></label><br />
+    <input type="range" id="yearRange" min="1950" max="2024" step="4" value="1950" /><br /><br />
+    <label>Overlay:
+      <select id="overlaySelect">
+        <option value="none">None</option>
+        <option value="demographics">Demographics</option>
+        <option value="urbanization">Urbanization</option>
+        <option value="migration">Migration</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map("map").setView([39.5, -98.5], 4);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap",
+    }).addTo(map);
+
+    let stateLayer;
+    let migrationLayer;
+
+    const yearLabel = document.getElementById("yearLabel");
+    const yearSlider = document.getElementById("yearRange");
+    const overlaySelect = document.getElementById("overlaySelect");
+
+    yearSlider.addEventListener("input", () => {
+      yearLabel.textContent = yearSlider.value;
+      updateMap(yearSlider.value);
+    });
+
+    overlaySelect.addEventListener("change", () => {
+      updateMap(yearSlider.value);
+    });
+
+    async function updateMap(year) {
+      if (stateLayer) map.removeLayer(stateLayer);
+      if (migrationLayer) map.removeLayer(migrationLayer);
+
+      const response = await fetch(`data/${year}.geojson`);
+      const geojson = await response.json();
+
+      const overlay = overlaySelect.value;
+
+      stateLayer = L.geoJSON(geojson, {
+        style: feature => {
+          const props = feature.properties;
+          let fillColor = props.winner === "Democrat" ? "#1E90FF" :
+                          props.winner === "Republican" ? "#DC143C" : "#ccc";
+
+          if (overlay === "urbanization") {
+            const value = props.urban || 0;
+            fillColor = `rgba(100, 200, 100, ${value / 100})`;
+          }
+
+          return {
+            color: "#000",
+            weight: 1,
+            fillColor,
+            fillOpacity: 0.7,
+          };
+        },
+        onEachFeature: (feature, layer) => {
+          const props = feature.properties;
+          let content = `<b>${props.name}</b><br>Winner: ${props.winner}`;
+
+          if (overlay === "demographics") {
+            content += `<br>White: ${props.white}%<br>Black: ${props.black}%<br>Hispanic: ${props.hispanic}%`;
+          } else if (overlay === "urbanization") {
+            content += `<br>Urban Pop: ${props.urban}%`;
+          }
+
+          layer.bindPopup(content);
+        },
+      }).addTo(map);
+
+      if (overlay === "migration") {
+        const arrows = geojson.features.map(f => {
+          const mig = f.properties.migration;
+          if (!mig) return null;
+          return L.polyline([mig.from, mig.to], { color: "orange", weight: 2, dashArray: "4" });
+        }).filter(Boolean);
+
+        migrationLayer = L.layerGroup(arrows).addTo(map);
+      }
+    }
+
+    updateMap(yearSlider.value);
+  </script>
+</body>
+</html>
